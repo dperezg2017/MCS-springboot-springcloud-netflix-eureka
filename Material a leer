@@ -1,0 +1,43 @@
+Spring Data JPA ; crudrepository, ayuda para las transacciones 
+
+Feign: escalable, por lso endpoint
+ * servicio-item
+
+Ribbon: balanceador de cargas
+ * servicio-item
+
+Eureka server: se puede ver los componentes asociados, y cuantas instancias tiene. eureka server junto al eureka client vemos el balanceo de cargas.
+* servicio-eureka-server
+
+Eureka Discovery client:  se retira ribbon, ya que este client contiene la misma funcionalidad
+ * servicio-item  	  : agregar en properties => eureka.client.service-url.defaultZone=http://localhost:8761/eureka
+ * servicio-productos : agregar en properties => eureka.client.service-url.defaultZone=http://localhost:8761/eureka
+
+ Hystrix: informacion para analizar, cuantas excepciones, cuantos Ok, y Excpecion , metodos alternativos si falla o timeout. 
+  * servicio-item     : agregar en properties => hystrix.command.default.execution.isolation.thread.timeoutInMilliseconds: 20000∫
+												 ribbon.ConnectTimeout: 3000   // para maximo timeout en los metodos. 
+												 ribbon.ReadTimeout: 10000
+
+Zuul: podemos interactuar mediante un solo puerto, a todos los microservicios, con el uso de ZuulFilter podemos ver el tiempo transcurrido que demora cada evento que hacemos mediante el puerto del zull. tambien configurar error timeoute en properties y metodo alternativo.
+* servicio-zuul-server
+
+
+Config Server: se creo properties con puerto 8805 en GIT, para que actualice en caliente.
+* config-server
+
+
+Config Client: 
+* servicio-item
+
+
+Actuator: actualizar mediante un POS: http://localhost:port/actuator/refresh/
+*servicio-item
+
+ * servicio-item	  		: 8002			
+ * servicio-productos 		: 9001,8001  
+ * servicio-eureka-server	: 8761
+ * servicio-zuul-server		: 8090
+
+
+bootstrap.properties esta en prioridad a aplication.properties, generalmente en bootstrap va toda configuracion de serverconfig
+
