@@ -1,4 +1,5 @@
 Spring Data JPA ; crudrepository, ayuda para las transacciones 
+ * servicio-usuarios
 
 Feign: escalable, por lso endpoint
  * servicio-item
@@ -7,7 +8,7 @@ Ribbon: balanceador de cargas
  * servicio-item
 
 Eureka server: se puede ver los componentes asociados, y cuantas instancias tiene. eureka server junto al eureka client vemos el balanceo de cargas.
-* servicio-eureka-server
+ * servicio-eureka-server
 
 Eureka Discovery client:  se retira ribbon, ya que este client contiene la misma funcionalidad
  * servicio-item  	  : agregar en properties => eureka.client.service-url.defaultZone=http://localhost:8761/eureka
@@ -17,12 +18,13 @@ Eureka Discovery client:  se retira ribbon, ya que este client contiene la misma
   * servicio-item     : agregar en properties => hystrix.command.default.execution.isolation.thread.timeoutInMilliseconds: 20000∫
 												 ribbon.ConnectTimeout: 3000   // para maximo timeout en los metodos. 
 												 ribbon.ReadTimeout: 10000
+  * servicio-usuarios
 
-Zuul: podemos interactuar mediante un solo puerto, a todos los microservicios, con el uso de ZuulFilter podemos ver el tiempo transcurrido que demora cada evento que hacemos mediante el puerto del zull. tambien configurar error timeoute en properties y metodo alternativo.
+Zuul: podemos interactuar mediante un solo puerto, a todos los microservicios, con el uso de ZuulFilter podemos ver el tiempo transcurrido que demora cada evento que hacemos mediante el puerto del zull. tambien configurar error timeoute en properties y metodo alternativo. proteger nuestros recursos 
 * servicio-zuul-server
 
 
-Config Server: se creo properties con puerto 8805 en GIT, para que actualice en caliente.
+Config Server: se creo properties con puerto 8805 en GIT, para que actualice en caliente. servidor de configuraciones
 * config-server
 
 
@@ -33,11 +35,188 @@ Config Client:
 Actuator: actualizar mediante un POS: http://localhost:port/actuator/refresh/
 *servicio-item
 
+Spring Security: para trabajar con roles, usuarios. privilegios,
+* servicio-usuarios
+
+
+
  * servicio-item	  		: 8002			
  * servicio-productos 		: 9001,8001  
  * servicio-eureka-server	: 8761
  * servicio-zuul-server		: 8090
+ * servicio-commons 		: dependency
 
 
 bootstrap.properties esta en prioridad a aplication.properties, generalmente en bootstrap va toda configuracion de serverconfig
+==============================================================================================================================
+-* servicio-config-server   
+----------------------------------------------------------------------------------------------------------------------------------
+
+	anotaciones: 
+		main: 	@EnableConfigServer
+
+	properties: 
+		spring.application.name=config-server
+		server.port=8888
+		#spring.cloud.config.server.git.uri=file:/Users/deyvisperez/deyvizperez/udemy/microservicios-springboot-springcloud-netflix-eureka/config
+		spring.cloud.config.server.git.uri=https://github.com/dperezg2017/config.git
+
+	dependency: 
+  		x Spring Boot DevTools
+  		x Config Server
+
+----------------------------------------------------------------------------------------------------------------------------------
+-* servicio-item	  		: 8002	
+----------------------------------------------------------------------------------------------------------------------------------
+	anotaciones: 
+
+		main: 	@EnableCircuitBreaker
+				@EnableEurekaClient
+				//@RibbonClient(name = "servicio-productos")
+				@EnableFeignClients
+				@SpringBootApplication
+				@EnableAutoConfiguration(exclude = {DataSourceAutoConfiguration.class})
+	properties:
+		spring.application.name=servicio-items
+		server.port=8002
+		# servicio-productos.ribbon.listOfServers=localhost:8001,localhost:9001
+		eureka.client.service-url.defaultZone=http://localhost:8761/eureka
+		hystrix.command.default.execution.isolation.thread.timeoutInMilliseconds: 20000
+		ribbon.ConnectTimeout: 3000
+		ribbon.ReadTimeout: 10000
+
+	dependency: 
+  		x Spring Boot DevTools
+  		x Spring Boot Actuator
+  		x Hystrix
+  		x Config Client
+  		x OpenFeign
+  		x Eureka Discovery Client
+  		x Spring Web
+
+----------------------------------------------------------------------------------------------------------------------------------
+-* servicio-productos 		: 9001,8001  
+----------------------------------------------------------------------------------------------------------------------------------
+
+	anotaciones: 
+
+		main: 	@EnableEurekaClient		// Para que se amarre al EurekaServer
+				@SpringBootApplication
+				@EntityScan({"com.formacionbdi.springboot.app.commons.models.entity"}) // para detectart y reconocer, se separa con comas(,)
+
+		clases: @RestController
+				@Autowired
+				@Value("${server.port}")
+				@GetMapping("/listar")
+				@PostMapping("/crear")
+				@ResponseStatus(HttpStatus.CREATED)
+				@PutMapping("/editar/{id}")
+				@DeleteMapping("/eliminar/{id}")
+				@ResponseStatus(HttpStatus.NO_CONTENT)
+				@Service
+				@Override
+				@Transactional(readOnly = true)
+
+   	properties:
+		spring.application.name=servicio-productos
+		## para que el puerto sea un randon  server.port=8001
+		server.port=${PORT:0}
+		eureka.instance.instance-id=${spring.application.name}:${spring.application.instance_id:${random.value}}
+		eureka.client.service-url.defaultZone=http://localhost:8761/eureka
+
+	dependency:
+  		x Spring Boot DevTools
+  		x Spring Data JPA
+  		x H2 Database
+  		x Eureka Discovery Client
+  		x Spring Web
+
+----------------------------------------------------------------------------------------------------------------------------------
+-* servicio-eureka-server	: 8761
+----------------------------------------------------------------------------------------------------------------------------------
+
+	anotaciones:
+		main : @EnableEurekaServer
+	properties:
+		spring.application.name=servicio-eureka-server
+		server.port=8761
+		eureka.client.register-with-eureka=false
+		eureka.client.fetch-registry=false
+	dependency:
+	  	x Spring Boot DevTools
+  		x Eureka Server
+
+----------------------------------------------------------------------------------------------------------------------------------
+-* servicio-zuul-server		: 8090
+----------------------------------------------------------------------------------------------------------------------------------
+ 	anotaciones
+ 		main:	@EnableEurekaClient
+				@EnableZuulProxy
+				@SpringBootApplication
+		clases: @Component
+				@Override
+ 	properties: 
+		spring.application.name=servicio-zuul-server
+		server.port=8090
+		eureka.client.service-url.defaultZone=http://localhost:8761/eureka/
+		zuul.routes.productos.service-id=servicio-productos
+		zuul.routes.productos.path=/api/productos/**
+		zuul.routes.items.service-id=servicio-items
+		zuul.routes.items.path=/api/items/**
+		#hystrix.command.default.execution.isolation.thread.timeoutInMilliseconds: 20000
+		#ribbon.ConnectTimeout: 3000
+		#ribbon.ReadTimeout: 10000
+	dependency: 
+  		x Spring Boot DevTools
+  		x Eureka Discovery cLIENT
+  		x Spring Web
+  		x Zuul
+----------------------------------------------------------------------------------------------------------------------------------
+-* servicio-commons 		: 
+----------------------------------------------------------------------------------------------------------------------------------
+ 	 anotaciones
+ 		main:	@SpringBootApplication
+				@EnableAutoConfiguration(exclude = {DataSourceAutoConfiguration.class})
+		clases: @Entity
+				@Table(name="productos")
+				@Id
+				@GeneratedValue(strategy = GenerationType.IDENTITY) // autoincremental
+				@Column(name = "create_at")
+				@Temporal(TemporalType.DATE)
+				@Transient  // no se va mapear para la bd, ya que es temporal
+ 	properties: 
+		spring.application.name=servicio-zuul-server
+		server.port=8090
+		eureka.client.service-url.defaultZone=http://localhost:8761/eureka/
+		zuul.routes.productos.service-id=servicio-productos
+		zuul.routes.productos.path=/api/productos/**
+		zuul.routes.items.service-id=servicio-items
+		zuul.routes.items.path=/api/items/**
+		#hystrix.command.default.execution.isolation.thread.timeoutInMilliseconds: 20000
+		#ribbon.ConnectTimeout: 3000
+		#ribbon.ReadTimeout: 10000
+	dependency: 
+  		x Spring Data JPA
+
+----------------------------------------------------------------------------------------------------------------------------------
+-* servicio-usuarios
+----------------------------------------------------------------------------------------------------------------------------------
+ 	properties: 
+ 		spring.application.name=servicio-usuarios
+		server.port=${PORT:0}
+		eureka.instance.instance-id=${spring.application.name}:${spring.applica
+		logging.level.org.hibernate.SQL=debug
+	dependency: 
+  		x Spring Boot DevTools
+  		x Spring data JPA
+  		x H2 Database
+  		x Eureka Discovery cLIENT
+  		x Spring Web
+
+ ----------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
 
