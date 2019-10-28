@@ -38,38 +38,31 @@ Actuator: actualizar mediante un POS: http://localhost:port/actuator/refresh/
 Spring Security: para trabajar con roles, usuarios. privilegios,
 * servicio-usuarios
 
+Rest Repositories: se inyecta para utilizar los endpoints a la BD, con los verbos (GET,POS,PUT,DELETE,search)
+* servicio-usuarios
 
-
- * servicio-item	  		: 8002			
- * servicio-productos 		: 9001,8001  
- * servicio-eureka-server	: 8761
- * servicio-zuul-server		: 8090
- * servicio-commons 		: dependency
 
 
 bootstrap.properties esta en prioridad a aplication.properties, generalmente en bootstrap va toda configuracion de serverconfig
 ==============================================================================================================================
--* servicio-config-server   
+-* servicio-config-server   : 8805  Config Server ******************************************************************************
 ----------------------------------------------------------------------------------------------------------------------------------
-
 	anotaciones: 
 		main: 	@EnableConfigServer
-
+		x
 	properties: 
 		spring.application.name=config-server
 		server.port=8888
 		#spring.cloud.config.server.git.uri=file:/Users/deyvisperez/deyvizperez/udemy/microservicios-springboot-springcloud-netflix-eureka/config
 		spring.cloud.config.server.git.uri=https://github.com/dperezg2017/config.git
-
 	dependency: 
   		x Spring Boot DevTools
   		x Config Server
 
 ----------------------------------------------------------------------------------------------------------------------------------
--* servicio-item	  		: 8002	
+-* servicio-item	  		: 8002	Hystrix , Ribbon , Feign, Eureka Discovery client, Config Client, Actuator ************************
 ----------------------------------------------------------------------------------------------------------------------------------
 	anotaciones: 
-
 		main: 	@EnableCircuitBreaker
 				@EnableEurekaClient
 				//@RibbonClient(name = "servicio-productos")
@@ -84,7 +77,6 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 		hystrix.command.default.execution.isolation.thread.timeoutInMilliseconds: 20000
 		ribbon.ConnectTimeout: 3000
 		ribbon.ReadTimeout: 10000
-
 	dependency: 
   		x Spring Boot DevTools
   		x Spring Boot Actuator
@@ -95,15 +87,13 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
   		x Spring Web
 
 ----------------------------------------------------------------------------------------------------------------------------------
--* servicio-productos 		: 9001,8001  
+-* servicio-productos 		: 9001,8001   Eureka Discovery client  ****************************************************************
 ----------------------------------------------------------------------------------------------------------------------------------
-
 	anotaciones: 
 
 		main: 	@EnableEurekaClient		// Para que se amarre al EurekaServer
 				@SpringBootApplication
 				@EntityScan({"com.formacionbdi.springboot.app.commons.models.entity"}) // para detectart y reconocer, se separa con comas(,)
-
 		clases: @RestController
 				@Autowired
 				@Value("${server.port}")
@@ -116,14 +106,15 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 				@Service
 				@Override
 				@Transactional(readOnly = true)
-
+   	extends:
+   		extends: 
+   			CrudRepository<Producto, Long>{
    	properties:
 		spring.application.name=servicio-productos
 		## para que el puerto sea un randon  server.port=8001
 		server.port=${PORT:0}
 		eureka.instance.instance-id=${spring.application.name}:${spring.application.instance_id:${random.value}}
 		eureka.client.service-url.defaultZone=http://localhost:8761/eureka
-
 	dependency:
   		x Spring Boot DevTools
   		x Spring Data JPA
@@ -132,11 +123,11 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
   		x Spring Web
 
 ----------------------------------------------------------------------------------------------------------------------------------
--* servicio-eureka-server	: 8761
+-* servicio-eureka-server	: 8761  Eureka server *****************************************************************************
 ----------------------------------------------------------------------------------------------------------------------------------
-
 	anotaciones:
 		main : @EnableEurekaServer
+		x
 	properties:
 		spring.application.name=servicio-eureka-server
 		server.port=8761
@@ -147,7 +138,7 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
   		x Eureka Server
 
 ----------------------------------------------------------------------------------------------------------------------------------
--* servicio-zuul-server		: 8090
+-* servicio-zuul-server		: 8090 Zuul  ******************************************************************************
 ----------------------------------------------------------------------------------------------------------------------------------
  	anotaciones
  		main:	@EnableEurekaClient
@@ -155,6 +146,71 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 				@SpringBootApplication
 		clases: @Component
 				@Override
+	extends:
+		ZuulFilter: PosTiempoTranscurridoFilter2.java
+			@Override
+			public boolean shouldFilter() {
+			// si vamos a ejecutar el run(), para validar
+			return true;
+			}
+
+			@Override
+			public Object run() throws ZuulException {
+				RequestContext ctx= RequestContext.getCurrentContext();
+				HttpServletRequest request = ctx.getRequest();
+				
+				LOGGER.info("entrando a post filter");
+				
+				Long tiempoInicio = (Long) request.getAttribute("tiempoInicio");
+				Long tiempoFinal= System.currentTimeMillis();
+				Long tiempoTranscurrido = tiempoFinal - tiempoInicio;
+				
+				
+				LOGGER.info(String.format("Tiempo transcurrido en segundos %s segundos.", tiempoTranscurrido.doubleValue()/1000.00));
+				LOGGER.info(String.format("Tiempo transcurrido en segundos %s milisegundos", tiempoTranscurrido));
+				
+				return null;
+			}
+			@Override
+			public String filterType() {
+				// POST despues  de la ocmunicacion con el microservicio, pre es palabra clave
+				return "post";
+			}
+		
+			@Override
+			public int filterOrder() {
+				return 1;
+			}
+		ZuulFilter:	PreTiempoTranscurridoFilter.java
+			@Override
+			public boolean shouldFilter() {
+				// si vamos a ejecutar el run(), para validar
+				return true;
+			}
+		
+			@Override
+			public Object run() throws ZuulException {
+				RequestContext ctx= RequestContext.getCurrentContext();
+				HttpServletRequest request = ctx.getRequest();
+				
+				LOGGER.info(String.format("%s request enrutado a %s", request.getMethod(),request.getRequestURL().toString()));
+				
+				Long tiempoInicio = System.currentTimeMillis();
+				request.setAttribute("tiempoInicio",tiempoInicio);
+				return null;
+			}
+		
+			@Override
+			public String filterType() {
+				// PRE antes se resuelve la ruta, antes de la ocmunicacion con el microservicio, pre es palabra clave
+				return "pre";
+			}
+		
+			@Override
+			public int filterOrder() {
+				return 1;
+			}
+
  	properties: 
 		spring.application.name=servicio-zuul-server
 		server.port=8090
@@ -166,15 +222,17 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 		#hystrix.command.default.execution.isolation.thread.timeoutInMilliseconds: 20000
 		#ribbon.ConnectTimeout: 3000
 		#ribbon.ReadTimeout: 10000
+		zuul.routes.usuarios.service-id=servicio-usuarios
+		zuul.routes.usuarios.path=/api/usuarios/**
 	dependency: 
   		x Spring Boot DevTools
   		x Eureka Discovery cLIENT
   		x Spring Web
   		x Zuul
 ----------------------------------------------------------------------------------------------------------------------------------
--* servicio-commons 		: 
+-* servicio-commons 		: dependecia  de los microservicios ******************************************************************************
 ----------------------------------------------------------------------------------------------------------------------------------
- 	 anotaciones
+ 	anotaciones
  		main:	@SpringBootApplication
 				@EnableAutoConfiguration(exclude = {DataSourceAutoConfiguration.class})
 		clases: @Entity
@@ -197,10 +255,69 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 		#ribbon.ReadTimeout: 10000
 	dependency: 
   		x Spring Data JPA
+  		x
 
 ----------------------------------------------------------------------------------------------------------------------------------
--* servicio-usuarios
+-* servicio-usuarios Hystrix, Spring Data JPA, Rest Repositories **************************
 ----------------------------------------------------------------------------------------------------------------------------------
+ 	anotaciones:
+ 		main:
+ 		clases:	
+ 			//@ManyToMany(fetch = FetchType.EAGER) // viene por defecto, trae todo en una solo consulta
+ 			@ManyToMany(fetch = FetchType.LAZYl) // es recomendablem solo trae el dato cuando se hace la consulta. no es necesario aplicarlo en la otra tabla, solo basta en e lprincipal. * a * si en caso se decide seria: 
+			//@ManyToMany(fetch = FetchType.LAZY, mappedBy = "roles")
+			//private List<Usuario> usuarios;
+			@JoinTable(name = "usuarios_to_roles",joinColumns = @JoinColumn(name= "user_id"),inverseJoinColumns = @JoinColumn(	  name="role_id")) // dar nombre por defecto a los llaves
+			@JoinTable(name = "usuarios_roles",joinColumns = @JoinColumn(name= "usuario_id"),inverseJoinColumns = @JoinColumn(name="role_id"), uniqueConstraints = {@UniqueConstraint(columnNames = {"usuario_id","role_id"} )}) // dar nombre por defecto a los llaves ,y unique para no se repitan las llaves
+			@Configuration // clase de configuracion
+		interfaces: 
+  			@RepositoryRestResource(path = "usuarios") // donde se va exportar el crudrepository, endpoint localhost:8080/api/usuarios/usuarios 
+  			@RestResource(path = "buscar-username")
+			 public Usuario findByUsername(@Param("username") String username);
+	implements:
+		RepositoryRestConfigurer:  // para exponer id en json: GET: http://localhost:8090/api/usuarios/usuarios/
+			public void configureRepositoryRestConfiguration(RepositoryRestConfiguration config){
+			config.exposeIdsFor(Usuario.class,Role.class);
+		}
+  	postman:
+  		GET: http://localhost:8090/api/usuarios/usuarios 	// lista usuarios
+  			 http://localhost:8090/api/usuarios/usuarios/search/findByUsername?username=admin // sin anotacion
+  			 http://localhost:8090/api/usuarios/usuarios/search/buscar-username?username=admin // despues de usar anotaciones
+  		POS: http://localhost:8090/api/usuarios/usuarios   // crear usuario
+			{
+			  "username": "pepe",
+			  "password": "12345",
+			  "enabled": true,
+			  "nombre": "Jose",
+			  "apellido": "Doe",
+			  "email": "jose.doe@hotmail.com",
+			  "roles": [
+			    {
+			      "id":1, "nombre": "ROLE_USER"
+			    },
+			    {
+			      "id":2, "nombre": "ROLE_ADMIN"
+			    }
+			  ]
+			}
+		PUT: http://localhost:8090/api/usuarios/usuarios/3   // edita usuario pepe
+			{
+			  "username": "admin",
+			  "password": "12345",
+			  "enabled": true,
+			  "nombre": "Jose",
+			  "apellido": "Doe",
+			  "email": "jose.doe@hotmail.com",
+			  "roles": [
+			    {
+			      "id":1, "nombre": "ROLE_USER"
+			    },
+			    {
+			      "id":2, "nombre": "ROLE_ADMIN"
+			    }
+			  ]
+			}
+		DELETE: http://localhost:8090/api/usuarios/usuarios/3
  	properties: 
  		spring.application.name=servicio-usuarios
 		server.port=${PORT:0}
@@ -212,6 +329,7 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
   		x H2 Database
   		x Eureka Discovery cLIENT
   		x Spring Web
+  		x Rest Repositories
 
  ----------------------------------------------------------------------------------------------------------------------------------
 
