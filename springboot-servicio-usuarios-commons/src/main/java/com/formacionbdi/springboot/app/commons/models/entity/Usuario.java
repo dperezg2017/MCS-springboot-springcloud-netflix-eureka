@@ -1,4 +1,4 @@
-package com.formacionbdi.springboot.app.usuarios.models.entity;
+package com.formacionbdi.springboot.app.commons.models.entity;
 
 import java.io.Serializable;
 import java.util.List;
@@ -67,7 +67,7 @@ public class Usuario implements Serializable{
 		this.password = password;
 	}
 
-	public boolean isEnabled() {
+	public boolean getEnabled() {
 		return enabled;
 	}
 

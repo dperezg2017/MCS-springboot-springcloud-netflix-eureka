@@ -210,7 +210,6 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 			public int filterOrder() {
 				return 1;
 			}
-
  	properties: 
 		spring.application.name=servicio-zuul-server
 		server.port=8090
@@ -224,6 +223,8 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 		#ribbon.ReadTimeout: 10000
 		zuul.routes.usuarios.service-id=servicio-usuarios
 		zuul.routes.usuarios.path=/api/usuarios/**
+		zuul.routes.security.service-id=servicio-oauth
+		zuul.routes.security.path=/api/security/**
 	dependency: 
   		x Spring Boot DevTools
   		x Eureka Discovery cLIENT
@@ -262,6 +263,7 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 ----------------------------------------------------------------------------------------------------------------------------------
  	anotaciones:
  		main:
+ 			@EntityScan({"com.formacionbdi.springboot.app.commons.models.entity"})
  		clases:	
  			//@ManyToMany(fetch = FetchType.EAGER) // viene por defecto, trae todo en una solo consulta
  			@ManyToMany(fetch = FetchType.LAZYl) // es recomendablem solo trae el dato cuando se hace la consulta. no es necesario aplicarlo en la otra tabla, solo basta en e lprincipal. * a * si en caso se decide seria: 
@@ -332,6 +334,148 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
   		x Rest Repositories
 
  ----------------------------------------------------------------------------------------------------------------------------------
+-* servicio-usuarios-commons  Spring Data JPA **************************
+----------------------------------------------------------------------------------------------------------------------------------
+ 	anotaciones
+ 		main:	@SpringBootApplication
+				@EnableAutoConfiguration(exclude = {DataSourceAutoConfiguration.class})
+		clases: @Entity
+				@Table(name = "usuarios")
+				@Id
+				@GeneratedValue(strategy = GenerationType.IDENTITY) // autoincremental
+				@Column(name = "create_at")
+				@ManyToMany(fetch = FetchType.LAZY)
+				@JoinTable(name = "usuarios_roles",joinColumns = @JoinColumn(name= "usuario_id"),inverseJoinColumns = @JoinColumn(name="role_id"), 
+				uniqueConstraints = {@UniqueConstraint(columnNames = {"usuario_id","role_id"} )})
+
+				@Entity
+				@Table(name = "roles")
+				//	@ManyToMany(fetch = FetchType.LAZY, mappedBy = "roles")
+				//	private List<Usuario> usuarios;
+	dependency: 
+  		x Spring Data JPA
+  		x
+
+ ----------------------------------------------------------------------------------------------------------------------------------
+-* servicio-oauth  Spring Boot DevTools, Eureka Discovery Client, Open Feign, Cloud OAuth2, Spring Web ************
+----------------------------------------------------------------------------------------------------------------------------------
+ 	anotaciones:
+		main:
+	 		@EnableEurekaClient
+	 		@EnableFeignClients
+	 	clases:
+	 		@Service
+	 		@Configuration
+	 		@Bean
+	 		@EnableAuthorizationServer
+	implements:
+	 	UserDetailsService: 
+			@Service
+			public class UsuarioService implements UserDetailsService {
+		
+			private Logger log = LoggerFactory.getLogger(UsuarioService.class);
+		
+			@Autowired
+			private UsuarioFeignClient client;
+		
+			@Override
+			public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+			Usuario usuario = client.findByUsername(username);
+			
+			if(usuario==null) {
+				throw new UsernameNotFoundException("Error en el login, no existe el usuario'"+username+"' en el sistema");
+			}
+			// los roles se encuentran GrantedAuthority: de interfaz , SimpleGrantedAuthority pertenece a GrantedAuthority, pero este es la concreta. 
+			List<GrantedAuthority> authorities = usuario.getRole()
+					.stream()
+					.map(role -> new SimpleGrantedAuthority(role.getNombre()))
+					.peek(authority -> log.info("Role: "+authority.getAuthority()))
+					.collect(Collectors.toList());
+					log.info("Usuario autenticado"+username);
+			
+			return new User(usuario.getUsername(), usuario.getPassword(), usuario.getEnabled(), true, true, true, authorities);
+			}
+		CommandLineRunner: implementar en la main class, encriptar 4 claves
+	extends:
+		WebSecurityConfigurerAdapter:  
+		AuthorizationServerConfigurerAdapter: 
+			@Configuration
+			@EnableAuthorizationServer
+			public class AuthorizationServerConfig extends AuthorizationServerConfigurerAdapter{
+        
+	        @Autowired
+	        private BCryptPasswordEncoder passwordEncoder;
+	        
+	        @Autowired
+	        private AuthenticationManager authenticationManager;
+        
+	        @Override
+	        public void configure(AuthorizationServerSecurityConfigurer security) throws Exception {
+	        	security.checkTokenAccess("permitAll()") // validan token
+	        	.checkTokenAccess("isAuthenticated()"); // metodo de spring secuity, permite valida lo autenticado, se envia lciente ID con su secret
+	        }
+        
+	        @Override
+	        public void configure(ClientDetailsServiceConfigurer clients) throws Exception {
+	        	clients.inMemory().withClient("frontedapp")  // identificado del app fronted
+	        	.secret(passwordEncoder.encode("12345"))
+	        	.scopes("read","write") // se puede leer y escribir
+	        	.authorizedGrantTypes("password","refresh_token")  // usuario que inicia sesion en backend, autencacion login y la concecion, refresh_token, permite tener nuevo token antes que caduque el actual
+	        	.accessTokenValiditySeconds(3600) // tiempo para refresh_token
+	        	.refreshTokenValiditySeconds(3600);
+	        // si en caso se trabaja con mas clientes fronted
+	        //		.and()
+	        //		.withClient("frontedapp2") 
+	        //		.secret(passwordEncoder.encode("12345"))
+	        //		.scopes("read","write") 
+	        //		.authorizedGrantTypes("password","refresh_token")  
+	        //		.accessTokenValiditySeconds(3600) 
+	        //		.refreshTokenValiditySeconds(3600);
+	        }	
+        
+	        @Override
+	        public void configure(AuthorizationServerEndpointsConfigurer endpoints) throws Exception {
+	        	
+	        	endpoints.authenticationManager(authenticationManager)
+	        	.tokenStore(tokenStore())
+	        	.accessTokenConverter(accessTokenConverter());
+	        }
+        
+	        @Bean
+	        public JwtTokenStore tokenStore() {
+	        	return new JwtTokenStore(accessTokenConverter()); // crear tokey  almacenar username,roles, pass
+	        }
+        
+	        @Bean
+	        private JwtAccessTokenConverter accessTokenConverter() {
+	        	JwtAccessTokenConverter tokenConverter = new JwtAccessTokenConverter();
+	        	tokenConverter.setSigningKey("algun_codigo_secreto_aeiou"); // para que sea unico
+	        	return null;
+	        }
+	interface: 
+		@FeignClient(name = "servicio-usuarios")
+	properties:
+	 	spring.application.name=servicio-oauth
+		server.port=9100
+		#eureka.client.service-url.defaultZone=http://localhost:8761/eureka/
+		eureka.client.serviceUrl.defaultZone=http://localhost:8761/eureka/
+	pom: 
+			<dependency>
+			<groupId>com.formacionbdi.springboot.app.commons</groupId>
+			<artifactId>springboot-servicio-usuarios-commons</artifactId>
+			<version>0.0.1-SNAPSHOT</version>
+			<exclusions>
+				<exclusion>
+					<groupId>org.springframework.boot</groupId>
+					<artifactId>spring-boot-starter-data-jpa</artifactId>
+				</exclusion>
+			</exclusions>
+			</dependency>
+
+
+
+
+
 
 
 
