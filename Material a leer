@@ -77,6 +77,11 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 		hystrix.command.default.execution.isolation.thread.timeoutInMilliseconds: 20000
 		ribbon.ConnectTimeout: 3000
 		ribbon.ReadTimeout: 10000
+	bootstrap.properties
+		spring.application.name=servicio-items
+		spring.profiles.active=dev
+		spring.cloud.config.uri=http://localhost:8888
+		management.endpoints.web.exposure.include=*
 	dependency: 
   		x Spring Boot DevTools
   		x Spring Boot Actuator
@@ -121,6 +126,17 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
   		x H2 Database
   		x Eureka Discovery Client
   		x Spring Web
+  	import.sql:
+  		INSERT INTO productos (nombre,precio,create_at) VALUES('Panasonic',8020,NOW());
+		INSERT INTO productos (nombre,precio,create_at) VALUES('Sony',8200,NOW());
+		INSERT INTO productos (nombre,precio,create_at) VALUES('Apple',8300,NOW());
+		INSERT INTO productos (nombre,precio,create_at) VALUES('Hewlet',8400,NOW());
+		INSERT INTO productos (nombre,precio,create_at) VALUES('Bianchi',8100,NOW());
+		INSERT INTO productos (nombre,precio,create_at) VALUES('Nike',8200,NOW());
+		INSERT INTO productos (nombre,precio,create_at) VALUES('Adidas',560,NOW());
+		INSERT INTO productos (nombre,precio,create_at) VALUES('Reebok',3400,NOW());
+		INSERT INTO productos (nombre,precio,create_at) VALUES('Bmw',1003,NOW());
+		INSERT INTO productos (nombre,precio,create_at) VALUES('Lucky',2040,NOW());
 
 ----------------------------------------------------------------------------------------------------------------------------------
 -* servicio-eureka-server	: 8761  Eureka server *****************************************************************************
@@ -144,8 +160,10 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
  		main:	@EnableEurekaClient
 				@EnableZuulProxy
 				@SpringBootApplication
+				@RefreshScope
 		clases: @Component
 				@Override
+				@EnableResourceServer: habilitar recursos para el token
 	extends:
 		ZuulFilter: PosTiempoTranscurridoFilter2.java
 			@Override
@@ -210,26 +228,88 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 			public int filterOrder() {
 				return 1;
 			}
+		ResourceServerConfigurerAdapter: para configurar rutas y token
+			@Configuration
+			@EnableResourceServer
+			public class ResourceServerConfig extends ResourceServerConfigurerAdapter{
+			
+				@Override
+				public void configure(ResourceServerSecurityConfigurer resources) throws Exception {
+					// PARA CONFIGURAR LAS RUTAS 
+					resources.tokenStore(tokenStore());
+				}
+			
+				@Override
+				public void configure(HttpSecurity http) throws Exception {
+					// PARA CONFIGURAR EL TOKEN
+					// http.authorizeRequests().antMatchers("/api/security/oauth/token").permitAll(); solo a la ruta token
+					http.authorizeRequests().antMatchers("/api/security/oauth/**").permitAll() // a cualquier tuta token ò etc.
+					.antMatchers(HttpMethod.GET,"/api/productos/listar","/api/items/listar","/api/usuarios/usuarios").permitAll() // solo permite GET a esas rutas
+					.antMatchers(HttpMethod.GET,"/api/productos/ver/{id}","/api/items/ver/{id}/cantidad/{cantidad}","/api/usuarios/usuarios/{id}").hasAnyRole("ADMIN","USER")
+					.antMatchers("api/productos/**","api/items/**","/api/usuarios/**").hasRole("ADMIN")
+					.anyRequest().authenticated(); // cualquier otro request, necesita ser autenticado. 
+					
+			//		Evito hacer los 3 debajo y hago todo en una linea
+			//		.antMatchers(HttpMethod.POST,"api/productos/crear","api/items/crear").hasRole("ADMIN")
+			//		.antMatchers(HttpMethod.PUT,"/api/productos/editar/{id}","/api/items/editar/{id}", "/api/usuarios/usuarios/{id}").hasRole("ADMIN")
+			//		.antMatchers(HttpMethod.DELETE,"/api/productos/eliminar/{id}","/api/items/eliminar/{id}", "/api/usuarios/usuarios/{id}").hasRole("ADMIN");
+				}
+			
+				@Bean
+				public JwtTokenStore tokenStore() {
+					return new JwtTokenStore(accessTokenConverter()); // crear tokey  almacenar username,roles, pass
+				}
+				
+				@Bean
+				public JwtAccessTokenConverter accessTokenConverter() {
+					JwtAccessTokenConverter tokenConverter = new JwtAccessTokenConverter();
+					tokenConverter.setSigningKey("algun_codigo_secreto_aeiou"); // para que sea unico
+					return tokenConverter;
+				}
+				
+			}
  	properties: 
 		spring.application.name=servicio-zuul-server
 		server.port=8090
+		
 		eureka.client.service-url.defaultZone=http://localhost:8761/eureka/
+		
 		zuul.routes.productos.service-id=servicio-productos
 		zuul.routes.productos.path=/api/productos/**
+		
 		zuul.routes.items.service-id=servicio-items
 		zuul.routes.items.path=/api/items/**
-		#hystrix.command.default.execution.isolation.thread.timeoutInMilliseconds: 20000
-		#ribbon.ConnectTimeout: 3000
-		#ribbon.ReadTimeout: 10000
+		
+		
 		zuul.routes.usuarios.service-id=servicio-usuarios
 		zuul.routes.usuarios.path=/api/usuarios/**
+		
+		
 		zuul.routes.security.service-id=servicio-oauth
 		zuul.routes.security.path=/api/security/**
+		# librarte de las cookies, por http
+		zuul.routes.security.sensitive-headers=Cookie,Set-Cookie
+		
+		
+		
+		hystrix.command.default.execution.isolation.thread.timeoutInMilliseconds: 20000
+		ribbon.ConnectTimeout: 3000
+		ribbon.ReadTimeout: 10000  
+	bootstrap.properties:
+		spring.application.name=servicio-zuul-server
+		spring.cloud.config.uri=http://localhost:8888
+		management.endpoints.web.exposure.include=*
 	dependency: 
   		x Spring Boot DevTools
   		x Eureka Discovery cLIENT
   		x Spring Web
   		x Zuul
+  		x Cloud OAuth2
+  	postman: 
+  		[paso 1] POST: http://localhost:8090/api/security/oauth/token	
+  		[paso 2] Authorization:
+  		type: bearer token
+  		token:  base64.base64.base64  <= se consigue con el Basic Auth y 
 ----------------------------------------------------------------------------------------------------------------------------------
 -* servicio-commons 		: dependecia  de los microservicios ******************************************************************************
 ----------------------------------------------------------------------------------------------------------------------------------
@@ -332,6 +412,16 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
   		x Eureka Discovery cLIENT
   		x Spring Web
   		x Rest Repositories
+  	import.sql:
+  		INSERT INTO usuarios(username,password,enabled,nombre,apellido,email) VALUES ('deyviz','$2a$10$4KmymFJiXCcDdNFpfqBoXOfxWAcfBjXhvIn095bPnXsgnRA7ghDMe',1,'Deyviz','Perez','dperezg2017@gmail.com');
+		INSERT INTO usuarios(username,password,enabled,nombre,apellido,email) VALUES ('eliodoro','$2a$10$dD5g3VnJTpSSZPi2IcTqDuaUrdsAXayyVPipAOrsTykCPiJfjoqHW',1,'Eliodoro','Chavez','dperezc2017@hotmail.com');
+		
+		INSERT INTO roles(nombre) VALUES ('ROLE_USER');
+		INSERT INTO roles(nombre) VALUES ('ROLE_ADMIN');
+		
+		INSERT INTO usuarios_roles(usuario_id,role_id) VALUES (1,1);
+		INSERT INTO usuarios_roles(usuario_id,role_id) VALUES (2,2);
+		INSERT INTO usuarios_roles(usuario_id,role_id) VALUES (2,1);
 
  ----------------------------------------------------------------------------------------------------------------------------------
 -* servicio-usuarios-commons  Spring Data JPA **************************
@@ -354,7 +444,7 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 				//	private List<Usuario> usuarios;
 	dependency: 
   		x Spring Data JPA
-  		x
+  		x Config Client
 
  ----------------------------------------------------------------------------------------------------------------------------------
 -* servicio-oauth  Spring Boot DevTools, Eureka Discovery Client, Open Feign, Cloud OAuth2, Spring Web ************
@@ -396,6 +486,24 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 			return new User(usuario.getUsername(), usuario.getPassword(), usuario.getEnabled(), true, true, true, authorities);
 			}
 		CommandLineRunner: implementar en la main class, encriptar 4 claves
+		TokenEnhancer: agregar informacion adicional al token
+			@Component
+			public class InfoAdicionalToken implements TokenEnhancer {
+				
+				@Autowired
+				private IUsuarioService usuarioService;
+			
+				@Override
+				public OAuth2AccessToken enhance(OAuth2AccessToken accessToken, OAuth2Authentication authentication) {
+					Map<String, Object> info = new HashMap<String, Object>();
+					Usuario usuario = usuarioService.findByUsername(authentication.getName());
+					info.put("nombre",usuario.getNombre());
+					info.put("apellido",usuario.getApellido());
+					info.put("correo",usuario.getEmail());
+					((DefaultOAuth2AccessToken) accessToken).setAdditionalInformation(info);
+					return accessToken;
+				}
+			}
 	extends:
 		WebSecurityConfigurerAdapter:  
 		AuthorizationServerConfigurerAdapter: 
@@ -459,6 +567,10 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 		server.port=9100
 		#eureka.client.service-url.defaultZone=http://localhost:8761/eureka/
 		eureka.client.serviceUrl.defaultZone=http://localhost:8761/eureka/
+	bootstrap.properties:
+		spring.application.name=servicio-oauth
+		spring.cloud.config.uri=http://localhost:8888
+		management.endpoints.web.exposure.include=*
 	pom: 
 			<dependency>
 			<groupId>com.formacionbdi.springboot.app.commons</groupId>
@@ -471,7 +583,31 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 				</exclusion>
 			</exclusions>
 			</dependency>
-
+	postman:
+		[paso 1] POS: http://localhost:8090/api/security/oauth/token
+		[paso 2] Authorization: ir al modulo 
+				  	type: Basic Auth
+				  	usernmae: frontedapp  // clave escrita en el backend
+				  	password: 12345 // clave escrita en el backend 
+				  	previewrequest: clic en el boton 
+				    header: se genera un codigo
+				    key: Authorization
+				    value: Basic ZnJvbnRlZGFwcDoxMjM0NQ==  // esto quiere decir 'Basic' + Base64.encode('frontedapp'+'12345')
+		[paso 3] Body: ir al modulo 
+					x-wwww-form-urlencoded: selecciona el radio button. y agregar los keys y dar SEND
+						key: username 	value: admin
+						key: password 	value: 12345
+						key:grant_type  value:password
+		[usar resfresh]	en Body:
+				grant_type				refresh_token	
+				refresh_token			base64.base64.base64
+	dependency: 
+  		x Spring Boot DevTools
+  		x Eureka Discovery Client
+  		x Open Feign
+  		x Cloud OAuth2
+  		x Spring Web
+  		x Config Client
 
 
 
