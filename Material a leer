@@ -41,6 +41,7 @@ Spring Security: para trabajar con roles, usuarios. privilegios,
 Rest Repositories: se inyecta para utilizar los endpoints a la BD, con los verbos (GET,POS,PUT,DELETE,search)
 * servicio-usuarios
 
+CORS: intercambio de recursos de origen cruzado
 
 
 bootstrap.properties esta en prioridad a aplication.properties, generalmente en bootstrap va toda configuracion de serverconfig
@@ -231,8 +232,12 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 		ResourceServerConfigurerAdapter: para configurar rutas y token
 			@Configuration
 			@EnableResourceServer
+			@RefreshScope
 			public class ResourceServerConfig extends ResourceServerConfigurerAdapter{
 			
+				@Value("config.security.oauth.jwt.key")
+				private String jwtKey;
+				
 				@Override
 				public void configure(ResourceServerSecurityConfigurer resources) throws Exception {
 					// PARA CONFIGURAR LAS RUTAS 
@@ -247,12 +252,34 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 					.antMatchers(HttpMethod.GET,"/api/productos/listar","/api/items/listar","/api/usuarios/usuarios").permitAll() // solo permite GET a esas rutas
 					.antMatchers(HttpMethod.GET,"/api/productos/ver/{id}","/api/items/ver/{id}/cantidad/{cantidad}","/api/usuarios/usuarios/{id}").hasAnyRole("ADMIN","USER")
 					.antMatchers("api/productos/**","api/items/**","/api/usuarios/**").hasRole("ADMIN")
-					.anyRequest().authenticated(); // cualquier otro request, necesita ser autenticado. 
-					
+					.anyRequest().authenticated() // cualquier otro request, necesita ser autenticado. 
+					.and().cors().configurationSource(corsConfigurationSource());
 			//		Evito hacer los 3 debajo y hago todo en una linea
 			//		.antMatchers(HttpMethod.POST,"api/productos/crear","api/items/crear").hasRole("ADMIN")
 			//		.antMatchers(HttpMethod.PUT,"/api/productos/editar/{id}","/api/items/editar/{id}", "/api/usuarios/usuarios/{id}").hasRole("ADMIN")
 			//		.antMatchers(HttpMethod.DELETE,"/api/productos/eliminar/{id}","/api/items/eliminar/{id}", "/api/usuarios/usuarios/{id}").hasRole("ADMIN");
+				}
+			
+				@Bean
+				public CorsConfigurationSource corsConfigurationSource() {
+					CorsConfiguration corsConfig= new CorsConfiguration();
+					//corsConfig.addAllowedOrigins("*"); // htttp://localhost:4200 del angular 
+					corsConfig.setAllowedOrigins(Arrays.asList("*")); // agregar varios dominios, * para que se aplique a cualquiera
+					corsConfig.setAllowedMethods(Arrays.asList("POST","GET","PUT","DELETE","OPTIONS"));
+					corsConfig.setAllowCredentials(true);
+					corsConfig.setAllowedHeaders(Arrays.asList("Authorization","Content-Type"));
+					
+					UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+					source.registerCorsConfiguration("/**", corsConfig); // ** se aplique a todas las rutas
+					return source;
+				}
+				
+				@Bean
+				public FilterRegistrationBean<CorsFilter> corsFilter() {
+			
+					FilterRegistrationBean<CorsFilter> bean = new FilterRegistrationBean<CorsFilter>(new CorsFilter(corsConfigurationSource()));
+					bean.setOrder(Ordered.HIGHEST_PRECEDENCE); // DAR PRIORIDAD ALTA
+					return bean;
 				}
 			
 				@Bean
@@ -263,11 +290,12 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 				@Bean
 				public JwtAccessTokenConverter accessTokenConverter() {
 					JwtAccessTokenConverter tokenConverter = new JwtAccessTokenConverter();
-					tokenConverter.setSigningKey("algun_codigo_secreto_aeiou"); // para que sea unico
+					tokenConverter.setSigningKey(jwtKey); // para que sea unico
 					return tokenConverter;
 				}
 				
 			}
+
  	properties: 
 		spring.application.name=servicio-zuul-server
 		server.port=8090

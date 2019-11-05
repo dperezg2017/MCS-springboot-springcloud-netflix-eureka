@@ -17,9 +17,11 @@ import org.springframework.stereotype.Service;
 import com.formacionbdi.springboot.app.commons.models.entity.Usuario;
 import com.formacionbdi.springboot.app.oauth.clients.UsuarioFeignClient;
 
+import feign.FeignException;
+
 @Service
-public class UsuarioService implements IUsuarioService,UserDetailsService {
-	//UserDetailsService: para la autenticacion
+public class UsuarioService implements IUsuarioService, UserDetailsService {
+	// UserDetailsService: para la autenticacion
 	// IUsuarioService: para obtener al usuario objeto con todos los datos
 
 	private Logger log = LoggerFactory.getLogger(UsuarioService.class);
@@ -29,25 +31,39 @@ public class UsuarioService implements IUsuarioService,UserDetailsService {
 
 	@Override
 	public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-		Usuario usuario = client.findByUsername(username);
-		
-		if(usuario==null) {
-			throw new UsernameNotFoundException("Error en el login, no existe el usuario'"+username+"' en el sistema");
+
+		try {
+
+			Usuario usuario = client.findByUsername(username);
+
+//			if (usuario == null) {
+//				throw new UsernameNotFoundException(
+//						"Error en el login, no existe el usuario'" + username + "' en el sistema");
+//			}
+			// los roles se encuentran GrantedAuthority: de interfaz ,
+			// SimpleGrantedAuthority pertenece a GrantedAuthority, pero este es la
+			// concreta.
+			List<GrantedAuthority> authorities = usuario.getRole().stream()
+					.map(role -> new SimpleGrantedAuthority(role.getNombre()))
+					.peek(authority -> log.info("Role: " + authority.getAuthority())).collect(Collectors.toList());
+			log.info("Usuario autenticado" + username);
+
+			return new User(usuario.getUsername(), usuario.getPassword(), usuario.getEnabled(), true, true, true,
+					authorities);
+		} catch (FeignException e) {
+			log.error("Error en el login, no existe el usuario'" + username + "' en el sistema");
+			throw new UsernameNotFoundException("Error en el login, no existe el usuario'" + username + "' en el sistema");
 		}
-		// los roles se encuentran GrantedAuthority: de interfaz , SimpleGrantedAuthority pertenece a GrantedAuthority, pero este es la concreta. 
-		List<GrantedAuthority> authorities = usuario.getRole()
-				.stream()
-				.map(role -> new SimpleGrantedAuthority(role.getNombre()))
-				.peek(authority -> log.info("Role: "+authority.getAuthority()))
-				.collect(Collectors.toList());
-				log.info("Usuario autenticado"+username);
-		
-	return new User(usuario.getUsername(), usuario.getPassword(), usuario.getEnabled(), true, true, true, authorities);
 	}
 
 	@Override
 	public Usuario findByUsername(String username) {
 		return client.findByUsername(username);
+	}
+
+	@Override
+	public Usuario update(Usuario usuario, Long id) {
+		return client.update(usuario, id);
 	}
 
 }
