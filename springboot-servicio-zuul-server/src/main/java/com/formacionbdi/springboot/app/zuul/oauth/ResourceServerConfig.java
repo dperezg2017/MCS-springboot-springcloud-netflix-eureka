@@ -25,7 +25,7 @@ import org.springframework.web.filter.CorsFilter;
 @RefreshScope
 public class ResourceServerConfig extends ResourceServerConfigurerAdapter{
 
-	@Value("config.security.oauth.jwt.key")
+	@Value("${config.security.oauth.jwt.key}")
 	private String jwtKey;
 	
 	@Override
@@ -42,7 +42,7 @@ public class ResourceServerConfig extends ResourceServerConfigurerAdapter{
 		.antMatchers(HttpMethod.GET,"/api/productos/listar","/api/items/listar","/api/usuarios/usuarios").permitAll() // solo permite GET a esas rutas
 		.antMatchers(HttpMethod.GET,"/api/productos/ver/{id}","/api/items/ver/{id}/cantidad/{cantidad}","/api/usuarios/usuarios/{id}").hasAnyRole("ADMIN","USER")
 		.antMatchers("api/productos/**","api/items/**","/api/usuarios/**").hasRole("ADMIN")
-		.anyRequest().authenticated() // cualquier otro request, necesita ser autenticado. 
+		.anyRequest().authenticated()// cualquier otro request, necesita ser autenticado. 
 		.and().cors().configurationSource(corsConfigurationSource());
 //		Evito hacer los 3 debajo y hago todo en una linea
 //		.antMatchers(HttpMethod.POST,"api/productos/crear","api/items/crear").hasRole("ADMIN")
@@ -80,7 +80,8 @@ public class ResourceServerConfig extends ResourceServerConfigurerAdapter{
 	@Bean
 	public JwtAccessTokenConverter accessTokenConverter() {
 		JwtAccessTokenConverter tokenConverter = new JwtAccessTokenConverter();
-		tokenConverter.setSigningKey(jwtKey); // para que sea unico
+//		tokenConverter.setSigningKey(jwtKey); // para que sea unico
+		tokenConverter.setSigningKey(jwtKey);
 		return tokenConverter;
 	}
 	

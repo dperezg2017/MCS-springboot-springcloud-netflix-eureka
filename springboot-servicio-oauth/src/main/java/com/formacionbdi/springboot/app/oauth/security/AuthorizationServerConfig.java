@@ -18,8 +18,8 @@ import org.springframework.security.oauth2.provider.token.TokenEnhancerChain;
 import org.springframework.security.oauth2.provider.token.store.JwtAccessTokenConverter;
 import org.springframework.security.oauth2.provider.token.store.JwtTokenStore;
 
-import com.netflix.discovery.converters.Auto;
 
+@RefreshScope
 @Configuration
 @EnableAuthorizationServer
 public class AuthorizationServerConfig extends AuthorizationServerConfigurerAdapter{
@@ -45,6 +45,8 @@ public class AuthorizationServerConfig extends AuthorizationServerConfigurerAdap
 	public void configure(ClientDetailsServiceConfigurer clients) throws Exception {
 		clients.inMemory().withClient(env.getProperty("config.security.oauth.client.id"))  // identificado del app fronted
 		.secret(passwordEncoder.encode(env.getProperty("config.security.oauth.client.secret")))
+//		clients.inMemory().withClient("frontendapp")
+//		.secret(passwordEncoder.encode("algun_codigo_secreto_aeiou"))
 		.scopes("read", "write") // se puede leer y escribir
 		.authorizedGrantTypes("password", "refresh_token") // usuario que inicia sesion en backend, autencacion login y la concecion, refresh_token, permite tener nuevo token antes que caduque el actual
 		.accessTokenValiditySeconds(3600) // tiempo para refresh_token
@@ -88,6 +90,7 @@ public class AuthorizationServerConfig extends AuthorizationServerConfigurerAdap
 	public JwtAccessTokenConverter accessTokenConverter() {	
 		JwtAccessTokenConverter tokenConverter = new JwtAccessTokenConverter();
 		tokenConverter.setSigningKey(env.getProperty("config.security.oauth.jwt.key")); // para que sea unico
+//		tokenConverter.setSigningKey("algun_codigo_secreto_aeiou");
 		return tokenConverter;
 	}
 	
