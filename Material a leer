@@ -43,6 +43,94 @@ Rest Repositories: se inyecta para utilizar los endpoints a la BD, con los verbo
 
 CORS: intercambio de recursos de origen cruzado
 
+Sleuth: implementar traza ([servicio-oauth,a9070806dc196bb9,eb122395f672dbfb,false]) por cada REQUEST con id diferente y unico, si es true exporta la traza a Zipkin.
+Zipkin: identificar trazas que genera el Sleuth, span, anotacion que son parametros. http://localhost:9411/, tiene su buscado de trazas al levantar el .exe.jar
+	* configurar mysql:
+		- github parametro mysql MySQL Storage: https://github.com/openzipkin/zipkin/tree/master/zipkin-server
+		-  create table: https://github.com/openzipkin/zipkin/blob/master/zipkin-storage/mysql-v1/src/main/resources/mysql.sql: 
+			CREATE TABLE IF NOT EXISTS zipkin_spans (
+			  `trace_id_high` BIGINT NOT NULL DEFAULT 0 COMMENT 'If non zero, this means the trace uses 128 bit traceIds instead of 64 bit',
+			  `trace_id` BIGINT NOT NULL,
+			  `id` BIGINT NOT NULL,
+			  `name` VARCHAR(255) NOT NULL,
+			  `remote_service_name` VARCHAR(255),
+			  `parent_id` BIGINT,
+			  `debug` BIT(1),
+			  `start_ts` BIGINT COMMENT 'Span.timestamp(): epoch micros used for endTs query and to implement TTL',
+			  `duration` BIGINT COMMENT 'Span.duration(): micros used for minDuration and maxDuration query',
+			  PRIMARY KEY (`trace_id_high`, `trace_id`, `id`)
+			) ENGINE=InnoDB ROW_FORMAT=COMPRESSED CHARACTER SET=utf8 COLLATE utf8_general_ci;
+			
+			ALTER TABLE zipkin_spans ADD INDEX(`trace_id_high`, `trace_id`) COMMENT 'for getTracesByIds';
+			ALTER TABLE zipkin_spans ADD INDEX(`name`) COMMENT 'for getTraces and getSpanNames';
+			ALTER TABLE zipkin_spans ADD INDEX(`remote_service_name`) COMMENT 'for getTraces and getRemoteServiceNames';
+			ALTER TABLE zipkin_spans ADD INDEX(`start_ts`) COMMENT 'for getTraces ordering and range';
+			
+			CREATE TABLE IF NOT EXISTS zipkin_annotations (
+			  `trace_id_high` BIGINT NOT NULL DEFAULT 0 COMMENT 'If non zero, this means the trace uses 128 bit traceIds instead of 64 bit',
+			  `trace_id` BIGINT NOT NULL COMMENT 'coincides with zipkin_spans.trace_id',
+			  `span_id` BIGINT NOT NULL COMMENT 'coincides with zipkin_spans.id',
+			  `a_key` VARCHAR(255) NOT NULL COMMENT 'BinaryAnnotation.key or Annotation.value if type == -1',
+			  `a_value` BLOB COMMENT 'BinaryAnnotation.value(), which must be smaller than 64KB',
+			  `a_type` INT NOT NULL COMMENT 'BinaryAnnotation.type() or -1 if Annotation',
+			  `a_timestamp` BIGINT COMMENT 'Used to implement TTL; Annotation.timestamp or zipkin_spans.timestamp',
+			  `endpoint_ipv4` INT COMMENT 'Null when Binary/Annotation.endpoint is null',
+			  `endpoint_ipv6` BINARY(16) COMMENT 'Null when Binary/Annotation.endpoint is null, or no IPv6 address',
+			  `endpoint_port` SMALLINT COMMENT 'Null when Binary/Annotation.endpoint is null',
+			  `endpoint_service_name` VARCHAR(255) COMMENT 'Null when Binary/Annotation.endpoint is null'
+			) ENGINE=InnoDB ROW_FORMAT=COMPRESSED CHARACTER SET=utf8 COLLATE utf8_general_ci;
+			
+			ALTER TABLE zipkin_annotations ADD UNIQUE KEY(`trace_id_high`, `trace_id`, `span_id`, `a_key`, `a_timestamp`) COMMENT 'Ignore insert on duplicate';
+			ALTER TABLE zipkin_annotations ADD INDEX(`trace_id_high`, `trace_id`, `span_id`) COMMENT 'for joining with zipkin_spans';
+			ALTER TABLE zipkin_annotations ADD INDEX(`trace_id_high`, `trace_id`) COMMENT 'for getTraces/ByIds';
+			ALTER TABLE zipkin_annotations ADD INDEX(`endpoint_service_name`) COMMENT 'for getTraces and getServiceNames';
+			ALTER TABLE zipkin_annotations ADD INDEX(`a_type`) COMMENT 'for getTraces and autocomplete values';
+			ALTER TABLE zipkin_annotations ADD INDEX(`a_key`) COMMENT 'for getTraces and autocomplete values';
+			ALTER TABLE zipkin_annotations ADD INDEX(`trace_id`, `span_id`, `a_key`) COMMENT 'for dependencies job';
+			
+			CREATE TABLE IF NOT EXISTS zipkin_dependencies (
+			  `day` DATE NOT NULL,
+			  `parent` VARCHAR(255) NOT NULL,
+			  `child` VARCHAR(255) NOT NULL,
+			  `call_count` BIGINT,
+			  `error_count` BIGINT,
+			  PRIMARY KEY (`day`, `parent`, `child`)
+			) ENGINE=InnoDB ROW_FORMAT=COMPRESSED CHARACTER SET=utf8 COLLATE utf8_general_ci;
+
+RabbitMQ: los microservicios son los productores. consumidor seria el servidor zipkin 
+	* star rabbit: rabbitmq-serve     detener rabbit: rabbitmqctl stop
+	* configuracion window rabbitmq->zipkin en un zipkin.cmd 
+		@echo off
+		set RABBIT_ADDRESSES=localhost:5672
+		set STORAGE_TYPE=mysql
+		set MYSQL_USER=zipkin
+		set MYSQL_PASS=zipkin
+		java -jar ./zipkin-server-2.19.1-exec.jar
+	* configuracion MAC rabbitmq->zipkin en un .sh 
+		!/bin/sh
+		export RABBIT_ADDRESSES=localhost:5672
+		export STORAGE_TYPE=mysql
+		export MYSQL_USER=zipkin
+		export MYSQL_PASS=zipkin
+		java -jar ./zipkin-server-2.19.1-exec.jar --server.port=5672
+
+DockerfiLe: 
+	* dockerizando el config-server: VOLUME: donde se guarda el historial como log,  ENTRYPOINT: parametros a ejecutar 
+		FROM openjdk:8
+		VOLUME 	/tmp
+		EXPOSE 8888
+		ADD ./target/springboot-servicio-config-server-0.0.1-SNAPSHOT.jar
+		ENTRYPOINT ["java","-jar","/config-server.jar"]
+	* construyendo con docker: siempre el punto(.)
+		docker build -t config-server:v1 .
+	* para listar las imagenes:
+		docker images
+	* crear una red para los proyectos:
+		docker network create springcloud
+	* correr la imagen con el primer puerto que podremos verlo externo y lo podemos ver de nuestro SO y el segundo es el interno o propio del sistema, nombre a ejecutar, nombre de red y nombre de la imagen
+		docker run -p 8888:8888 --name config-server --network springcloud config-server:v1
+		eliminar is hay otro que lo usa: docker rm -f /config-server
+	* 
 
 bootstrap.properties esta en prioridad a aplication.properties, generalmente en bootstrap va toda configuracion de serverconfig
 ==============================================================================================================================
@@ -74,10 +162,17 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 		spring.application.name=servicio-items
 		server.port=8002
 		# servicio-productos.ribbon.listOfServers=localhost:8001,localhost:9001
+		
 		eureka.client.service-url.defaultZone=http://localhost:8761/eureka
-		hystrix.command.default.execution.isolation.thread.timeoutInMilliseconds: 20000
-		ribbon.ConnectTimeout: 3000
-		ribbon.ReadTimeout: 10000
+		
+		#hystrix.command.default.execution.isolation.thread.timeoutInMilliseconds: 20000
+		#ribbon.ConnectTimeout: 3000
+		#ribbon.ReadTimeout: 10000
+		
+		
+		#solo el 10%=0.1 envia la traza al zipkin, para ello se configura
+		spring.sleuth.sampler.probability=1.0
+		spring.zipkin.base-url=http://localhost:9411/
 	bootstrap.properties
 		spring.application.name=servicio-items
 		spring.profiles.active=dev
@@ -91,7 +186,9 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
   		x OpenFeign
   		x Eureka Discovery Client
   		x Spring Web
-
+  		- Sleuth (eliminarlo)
+  		x Zipkin Client (contiene Sleuth)
+  		x Spring for RabbitMQ
 ----------------------------------------------------------------------------------------------------------------------------------
 -* servicio-productos 		: 9001,8001   Eureka Discovery client  ****************************************************************
 ----------------------------------------------------------------------------------------------------------------------------------
@@ -120,7 +217,11 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 		## para que el puerto sea un randon  server.port=8001
 		server.port=${PORT:0}
 		eureka.instance.instance-id=${spring.application.name}:${spring.application.instance_id:${random.value}}
+		
 		eureka.client.service-url.defaultZone=http://localhost:8761/eureka
+		
+		#solo el 10%=0.1 envia la traza al zipkin, para ello se configura
+		spring.sleuth.sampler.probability=1.0
 	dependency:
   		x Spring Boot DevTools
   		x Spring Data JPA
@@ -129,6 +230,9 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
   		x Spring Web
   		x MySQL Driver
   		x Config client
+  		- Sleuth (eliminarlo)
+  		x Zipkin Client (contiene Sleuth)
+  		x Spring for RabbitMQ
   	import.sql:
   		INSERT INTO productos (nombre,precio,create_at) VALUES('Panasonic',8020,NOW());
 		INSERT INTO productos (nombre,precio,create_at) VALUES('Sony',8200,NOW());
@@ -331,10 +435,14 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 		management.endpoints.web.exposure.include=*
 	dependency: 
   		x Spring Boot DevTools
-  		x Eureka Discovery cLIENT
+  		x Config Client
+  		x Eureka Discovery Client
   		x Spring Web
   		x Zuul
   		x Cloud OAuth2
+  		- Sleuth (eliminarlo)
+  		x Zipkin Client (contiene Sleuth)
+  		x Spring for RabbitMQ
   	postman: 
   		[paso 1] POST: http://localhost:8090/api/security/oauth/token	
   		[paso 2] Authorization:
@@ -431,10 +539,14 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 			}
 		DELETE: http://localhost:8090/api/usuarios/usuarios/3
  	properties: 
- 		spring.application.name=servicio-usuarios
+		spring.application.name=servicio-usuarios
 		server.port=${PORT:0}
-		eureka.instance.instance-id=${spring.application.name}:${spring.applica
+		eureka.instance.instance-id=${spring.application.name}:${spring.application.instance_id:${random.value}}
+		eureka.client.service-url.defaultZone=http://localhost:8761/eureka
 		logging.level.org.hibernate.SQL=debug
+		
+		#solo el 10%=0.1 envia la traza al zipkin, para ello se configura
+		spring.sleuth.sampler.probability=1.0
 	dependency: 
   		x Spring Boot DevTools
   		x Spring data JPA
@@ -444,6 +556,9 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
   		x Rest Repositories
   		x Postgress SQL Driver
   		x Config Client
+		- Sleuth (eliminarlo)
+  		x Zipkin Client (contiene Sleuth)
+  		x Spring for RabbitMQ
   	import.sql:
   		INSERT INTO usuarios(username,password,enabled,nombre,apellido,email) VALUES ('deyviz','$2a$10$4KmymFJiXCcDdNFpfqBoXOfxWAcfBjXhvIn095bPnXsgnRA7ghDMe',1,'Deyviz','Perez','dperezg2017@gmail.com');
 		INSERT INTO usuarios(username,password,enabled,nombre,apellido,email) VALUES ('eliodoro','$2a$10$dD5g3VnJTpSSZPi2IcTqDuaUrdsAXayyVPipAOrsTykCPiJfjoqHW',1,'Eliodoro','Chavez','dperezc2017@hotmail.com');
@@ -477,6 +592,7 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 	dependency: 
   		x Spring Data JPA
   		x Config Client
+
 
  ----------------------------------------------------------------------------------------------------------------------------------
 -* servicio-oauth  Spring Boot DevTools, Eureka Discovery Client, Open Feign, Cloud OAuth2, Spring Web ************
@@ -595,10 +711,13 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
 	interface: 
 		@FeignClient(name = "servicio-usuarios")
 	properties:
-	 	spring.application.name=servicio-oauth
+		spring.application.name=servicio-oauth
 		server.port=9100
 		#eureka.client.service-url.defaultZone=http://localhost:8761/eureka/
 		eureka.client.serviceUrl.defaultZone=http://localhost:8761/eureka/
+		
+		#solo el 10%=0.1 envia la traza al zipkin, para ello se configura
+		spring.sleuth.sampler.probability=1.0
 	bootstrap.properties:
 		spring.application.name=servicio-oauth
 		spring.cloud.config.uri=http://localhost:8888
@@ -640,6 +759,9 @@ bootstrap.properties esta en prioridad a aplication.properties, generalmente en 
   		x Cloud OAuth2
   		x Spring Web
   		x Config Client
+  		- Sleuth (eliminarlo)
+  		x Zipkin Client (contiene Sleuth)
+  		x Spring for RabbitMQ
 
 
 
