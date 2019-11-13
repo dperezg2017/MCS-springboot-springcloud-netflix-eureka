@@ -114,7 +114,7 @@ RabbitMQ: los microservicios son los productores. consumidor seria el servidor z
 		export MYSQL_PASS=zipkin
 		java -jar ./zipkin-server-2.19.1-exec.jar --server.port=5672
 
-DockerfiLe: 
+DockerfiLe config server: 
 	* dockerizando el config-server: VOLUME: donde se guarda el historial como log,  ENTRYPOINT: parametros a ejecutar 
 		FROM openjdk:8
 		VOLUME 	/tmp
@@ -128,9 +128,32 @@ DockerfiLe:
 	* crear una red para los proyectos:
 		docker network create springcloud
 	* correr la imagen con el primer puerto que podremos verlo externo y lo podemos ver de nuestro SO y el segundo es el interno o propio del sistema, nombre a ejecutar, nombre de red y nombre de la imagen
-		docker run -p 8888:8888 --name config-server --network springcloud config-server:v1
-		eliminar is hay otro que lo usa: docker rm -f /config-server
-	* 
+		*docker run -p 8888:8888 --name config-server --network springcloud config-server:v1
+	* eliminar is hay otro que lo usa: 
+		docker rm -f /config-server
+DockerfiLe eureka server: 
+	* construyendo imagen:  docker build -t servicio-eureka-server:v1 .
+	* correr con nombre, red, nombre imagen y version: 
+		*docker run -p 8761:8761 --name servicio-eureka-server --network springcloud servicio-eureka-server:v1
+	* eliminar is hay otro que lo usa: 
+		docker rm -f /servicio-eureka-server
+
+Creando contenedor para mysql: 
+	docker pull mysql:8
+	# -d: para correr como background; -e: dar variable de entorno
+		*docker run -p 3306:3306 --name microservicios-mysql8 --network springcloud -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=db_springboot_cloud -d mysql:8
+	* eliminar is hay otro que lo usa: 
+		docker rm -f /microservicios-mysql8
+
+creando contenedor Postgress
+
+		docker pull postgres:12-alpine 
+		*docker run -p 5433:5432 --name microservicios-postgres12 --network springcloud -e POSTGRES_PASSWORD=root -e POSTGRES_DB=db_springboot_cloud -d postgres:12-alpine
+		docker rm -f  /microservicios-postgres12
+		docker logs -f microservicios-postgres12 
+
+
+/servicio-eureka-server
 
 bootstrap.properties esta en prioridad a aplication.properties, generalmente en bootstrap va toda configuracion de serverconfig
 ==============================================================================================================================
